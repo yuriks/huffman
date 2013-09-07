@@ -1,7 +1,8 @@
 /*
  * The MIT License
  *
- * Copyright (c) 2010 yuriks.
+ * Copyright (c) 2010 Yuri K. Schlesner
+ *               2010 Hugo S. K. Puhlmann
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -96,7 +97,7 @@ void OFileBitstream::push_back(const Bitstream& stream)
 {
 	if (stream.length() >= 8)
 	{
-		for (unsigned long i = 0; i < (stream.length() >> 3)-1; ++i)
+		for (unsigned long i = 0; i < (stream.length() >> 3); ++i)
 		{
 			push_back(stream.store[i]);
 		}
@@ -134,4 +135,37 @@ OFileBitstream::~OFileBitstream()
 		while (cur_char_len != 0)
 			push_back(false);
 	}
+}
+
+IFileBitstream::IFileBitstream(std::ifstream& f) 
+	: file(f), current_char(0), current_pos(0)
+{
+	f.exceptions(std::ifstream::eofbit | std::ifstream::badbit | std::ifstream::failbit);
+}
+
+bool IFileBitstream::nextBit()
+{
+  if (current_pos == 0) 
+	  current_char = file.get();
+
+  bool bit = (current_char & 0x80) != 0;
+  current_char <<= 1;
+
+  if (++current_pos == 8)
+    current_pos = 0;
+  
+  return bit;
+}
+
+unsigned char IFileBitstream::nextChar()
+{
+	unsigned char a = 0;
+
+	for(int i = 0; i < 8; ++i) 
+	{
+		a <<= 1;
+		a |= nextBit() ? 1 : 0;
+	}
+
+	return a;
 }

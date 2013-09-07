@@ -2,7 +2,6 @@
  * The MIT License
  *
  * Copyright (c) 2010 Yuri K. Schlesner
- *               2010 Hugo S. K. Puhlmann
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,70 +21,41 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#ifndef YURIKS_BITSTREAM_H
-#define YURIKS_BITSTREAM_H
+#ifndef YURIKS_DUMP_TREE_H
+#define YURIKS_DUMP_TREE_H
 
-#include <vector>
-#include <cassert>
-#include <fstream>
-#include <iostream>
+#include "bitstream.h"
 
-class Bitstream
+#include <iomanip>
+#include <cctype>
+
+template <typename T>
+void print_huffman_tree(const Dictionary<T>* tree, std::ostream& s, int depth = 0)
 {
-public:
-	Bitstream();
+	for (int i = 0; i < depth; ++i)
+		s << '\t';
 
-	void push_back(bool bit);
-	void push_back(const Bitstream& stream);
-	void push_back(unsigned char byte);
-	unsigned long length() const;
-	//bool at(unsigned long i) const;
+	if (const DictValue<unsigned char> *dict_val = dynamic_cast<const DictValue<unsigned char>*>(tree))
+	{
+		s << "| 0x" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (unsigned int)dict_val->val;
+		if (std::isprint(dict_val->val))
+			s << " (" << dict_val->val << ")";
+		s << '\n';
+	}
+	else if (const DictNode<unsigned char> *dict_node = dynamic_cast<const DictNode<unsigned char>*>(tree))
+	{
+		s << "+ L\n";
+		print_huffman_tree(dict_node->l, s, depth+1);
 
-private:
-	std::vector<unsigned char> store;
-	unsigned long length_;
-
-	friend class OFileBitstream;
-};
-
-inline Bitstream::Bitstream()
-	: length_(0)
-{
+		for (int i = 0; i < depth; ++i)
+			s << '\t';
+		s << "+ R\n";
+		print_huffman_tree(dict_node->r, s, depth+1);
+	}
+	else // EOF
+	{
+		s << "| EOF\n";
+	}
 }
 
-inline unsigned long Bitstream::length() const
-{
-	return length_;
-}
-
-class OFileBitstream
-{
-public:
-	OFileBitstream(std::ostream& f);
-
-	void push_back(bool bit);
-	void push_back(const Bitstream& stream);
-	void push_back(unsigned char byte);
-
-	~OFileBitstream();
-
-private:
-	std::ostream& file;
-	unsigned char cur_char;
-	int cur_char_len;
-};
-
-class IFileBitstream
-{
-public:
-	IFileBitstream(std::ifstream& f);
-
-	bool nextBit();
-	unsigned char nextChar();
-private:
-	std::ifstream& file;
-	unsigned char current_char;
-	unsigned int current_pos;
-};
-
-#endif // YURIKS_BITSTREAM_H
+#endif // YURIKS_DUMP_TREE_H

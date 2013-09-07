@@ -1,7 +1,8 @@
 /*
  * The MIT License
  *
- * Copyright (c) 2010 yuriks.
+ * Copyright (c) 2010 Yuri K. Schlesner
+ *               2010 Hugo S. K. Puhlmann
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -50,47 +51,67 @@ std::vector<unsigned long> make_frequency(Iter begin, const Iter& end)
 
 void populate_reverse_map(std::vector<Bitstream*>& map, Dictionary<unsigned char> *dict, Bitstream path)
 {
-	if (DictValue<unsigned char> *dict_val = dynamic_cast<DictValue<unsigned char>*>(dict))
+	DictType type = dict->getType();
+
+	switch (type)
 	{
+	case DICT_VALUE:
+	//if (DictValue<unsigned char> *dict_val = dynamic_cast<DictValue<unsigned char>*>(dict))
+	{
+		DictValue<unsigned char> *dict_val = static_cast<DictValue<unsigned char>*>(dict);
+
 		map[dict_val->val] = new Bitstream(path);
-	}
-	else if (DictNode<unsigned char> *dict_node = dynamic_cast<DictNode<unsigned char>*>(dict))
+	} break;
+	case DICT_NODE:
+	//else if (DictNode<unsigned char> *dict_node = dynamic_cast<DictNode<unsigned char>*>(dict))
 	{
+		DictNode<unsigned char> *dict_node = static_cast<DictNode<unsigned char>*>(dict);
 		Bitstream path_copy = path;
 
 		path.push_back(false);
 		populate_reverse_map(map, dict_node->l, path);
 		path_copy.push_back(true);
 		populate_reverse_map(map, dict_node->r, path_copy);
-	}
-	else // EOF
+	} break;
+	case DICT_NONE_EOF:
+	//else // EOF
 	{
 		map[std::numeric_limits<unsigned char>::max() + 1] = new Bitstream(path);
+	} break;
 	}
 }
 
 void serialize_dictionary(OFileBitstream& s, Dictionary<unsigned char> *dict)
 {
-	if (DictValue<unsigned char> *dict_val = dynamic_cast<DictValue<unsigned char>*>(dict))
+	DictType type = dict->getType();
+
+	switch (type)
 	{
+	case DICT_VALUE:
+	{
+		DictValue<unsigned char> *dict_val = static_cast<DictValue<unsigned char>*>(dict);
+
 		s.push_back(false);
 		s.push_back(dict_val->val);
 		// To differentiate from EOF
 		if (dict_val->val == 0)
 			s.push_back(false);
-	}
-	else if (DictNode<unsigned char> *dict_node = dynamic_cast<DictNode<unsigned char>*>(dict))
+	} break;
+	case DICT_NODE:
 	{
+		DictNode<unsigned char> *dict_node = static_cast<DictNode<unsigned char>*>(dict);
+
 		s.push_back(true);
 		serialize_dictionary(s, dict_node->l);
 		serialize_dictionary(s, dict_node->r);
-	}
-	else // EOF
+	} break;
+	case DICT_NONE_EOF:
 	{
 		s.push_back(false);
 		// EOF marker: 0 followed by bit 1
 		s.push_back(static_cast<unsigned char>(0));
 		s.push_back(true);
+	} break;
 	}
 }
 
@@ -139,8 +160,10 @@ Dictionary<unsigned char>* build_huffman_tree(Iter& begin, const Iter& end)
 	return dict_queue.top().first;
 }
 
+static const char spinner_chars[4] = {'|', '\\', '-', '/'};
+
 template <typename Iter>
-void huffman_compress(Dictionary<unsigned char>* tree, OFileBitstream& stream, Iter& begin, const Iter& end)
+void huffman_compress(Dictionary<unsigned char>* tree, OFileBitstream& stream, Iter& begin, const Iter& end, unsigned long long size)
 {
 	using namespace YURIKS_HUFFMAN_CPP;
 
@@ -152,15 +175,110 @@ void huffman_compress(Dictionary<unsigned char>* tree, OFileBitstream& stream, I
 	// Write dictionary
 	serialize_dictionary(stream, tree);
 
+	int progress = 1;
+	int spinner_pos = 0;
+	unsigned long cur_pos = 0;
+
 	// Write data
 	for (; begin != end; ++begin)
 	{
-		//(void)*begin;
+		if (--progress == 0)
+		{
+			std::cerr << '\r' << spinner_chars[spinner_pos] << ' ' << (int)((float)cur_pos / size * 100) << '%' << std::flush;
+			if (++spinner_pos == 4)
+				spinner_pos = 0;
+
+			progress = 100000;
+		}
+
 		stream.push_back(*reverse_map[(unsigned char)*begin]);
+		++cur_pos;
 	}
+	std::cerr << "\r  100%" << std::endl;
+
 	// Write EOF
 	stream.push_back(*reverse_map[max_val+1]);
 
 	for (std::vector<Bitstream*>::iterator i = reverse_map.begin(); i != reverse_map.end(); ++i)
 		delete *i;
+}
+
+void huffman_uncompress(IFileBitstream& stream, std::ostream& output, const Dictionary<unsigned char>* tree, unsigned long long size)
+{
+	const Dictionary<unsigned char> *const root = tree;
+	const Dictionary<unsigned char>* cur = root;
+
+	try
+	{
+		int progress = 1;
+		int spinner_pos = 0;
+		unsigned long cur_pos = 0;
+
+		while (true)
+		{
+			// Isto eh uma otimizacao
+			DictType t = cur->getType();
+
+			switch (t)
+			{
+			case DICT_NODE:
+			{
+				const DictNode<unsigned char>* node = static_cast<const DictNode<unsigned char>*>(cur);
+
+				if (!stream.nextBit())
+					cur = node->l;
+				else
+					cur = node->r;
+
+				++cur_pos;
+			} break;
+			case DICT_VALUE:
+			{
+				const DictValue<unsigned char>* val = static_cast<const DictValue<unsigned char>*>(cur);
+
+				if (--progress == 0)
+				{
+					std::cerr << '\r' << spinner_chars[spinner_pos] << ' ' << (int)((float)cur_pos / 8 / size * 100) << '%' << std::flush;
+					if (++spinner_pos == 4)
+						spinner_pos = 0;
+
+					progress = 100000;
+				}
+
+				output.put((char)val->val);
+				cur = root;
+			} break;
+			case DICT_NONE_EOF:
+			{
+				// EOF
+				goto out_while;
+			} break;
+			}
+		}
+out_while:;
+		std::cerr << "\r  100%" << std::endl;
+	}
+	catch (std::ifstream::failure&)
+	{
+		std::cerr << "Erro durante a descompressao";
+	}
+}
+
+Dictionary<unsigned char>* readNode(IFileBitstream& stream)
+{
+	if (stream.nextBit())
+	{
+		DictNode<unsigned char>* node = new DictNode<unsigned char>();
+		node->l = readNode(stream);
+		node->r = readNode(stream);
+		return node;
+	}
+	else
+	{
+		unsigned char val = stream.nextChar();
+		if (val == 0)
+			if (stream.nextBit() == true)
+				return new Dictionary<unsigned char>(); // EOF
+		return new DictValue<unsigned char>(val);
+	}
 }

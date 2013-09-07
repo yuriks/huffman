@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright (c) 2010 yuriks.
+ * Copyright (c) 2010 Yuri K. Schlesner
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,17 +26,30 @@
 
 #include "bitstream.h"
 
+enum DictType
+{
+	DICT_NONE_EOF,
+	DICT_VALUE,
+	DICT_NODE
+};
+
 template <typename T>
 struct Dictionary
 {
-	virtual ~Dictionary() {};
+	DictType type;
+
+	Dictionary() : type(DICT_NONE_EOF) {}
+	virtual ~Dictionary() {}
+
+	virtual DictType getType() const { return DICT_NONE_EOF; }
 };
 
 template <typename T>
 struct DictValue : Dictionary<T>
 {
 	DictValue(T val);
-	~DictValue();
+
+	virtual DictType getType() const { return DICT_VALUE; }
 
 	T val;
 };
@@ -46,7 +59,8 @@ struct DictNode : Dictionary<T>
 {
 	DictNode();
 	DictNode(Dictionary<T> *l, Dictionary<T> *r);
-	~DictNode();
+
+	virtual DictType getType() const { return DICT_NODE; }
 
 	Dictionary<T> *l, *r;
 };
@@ -55,17 +69,15 @@ template <typename Iter>
 Dictionary<unsigned char>* build_huffman_tree(Iter& begin, const Iter& end);
 template <typename Iter>
 void huffman_compress(Dictionary<unsigned char>* tree, OFileBitstream& stream, Iter& begin, const Iter& end);
+Dictionary<unsigned char>* readNode(IFileBitstream& stream);
+
+void huffman_uncompress(IFileBitstream& stream, std::ostream& output);
 
 ///////////////////////////////////////////////////////////////////////////////
 
 template <typename T>
 inline DictValue<T>::DictValue(T val)
 	: val(val)
-{
-}
-
-template <typename T>
-DictValue<T>::~DictValue()
 {
 }
 
@@ -79,13 +91,6 @@ template <typename T>
 inline DictNode<T>::DictNode(Dictionary<T> *l, Dictionary<T> *r)
 	: l(l), r(r)
 {
-}
-
-template <typename T>
-DictNode<T>::~DictNode()
-{
-	delete l;
-	delete r;
 }
 
 #include "huffman.hpp"

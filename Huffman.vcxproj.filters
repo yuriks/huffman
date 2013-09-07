@@ -32,5 +32,8 @@
     <ClInclude Include="huffman.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="dump_tree.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
